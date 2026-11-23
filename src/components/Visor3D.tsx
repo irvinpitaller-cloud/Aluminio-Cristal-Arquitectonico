@@ -5,6 +5,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import {
   TypologyDefinition,
   BrandComparison,
+  TIPOLOGIAS_CATALOGO,
   ACABADOS_ALUMINIO,
   OPCIONES_CRISTAL,
 } from '../data/aluminumData';
@@ -29,24 +30,38 @@ export interface DespieceInfo {
   formula: string;
 }
 
-interface Visor3DProps {
-  typology: TypologyDefinition;
-  ancho: number; // mm
-  alto: number; // mm
-  marca: string;
-  brandData?: BrandComparison;
-  acabadoId: string;
-  cristalId: string;
-  despiece: DespieceInfo[];
-}
-
-interface PartUserData {
+export interface PartUserData {
   name: string;
   code: string;
   brand: string;
   material: string;
   desc: string;
   dim: string;
+}
+
+export type TipoVentana3D =
+  | 'corrediza'
+  | 'corrediza_2'
+  | 'fija'
+  | 'tres_hojas'
+  | 'oxxo'
+  | 'puerta_batiente'
+  | 'puerta_ligera'
+  | 'cancel_bano';
+
+interface Visor3DProps {
+  ancho?: number; // mm
+  alto?: number; // mm
+  acabado?: string; // 'blanco' | 'negro' | 'natural' | 'nogal' | 'bronce'
+  cristal?: string; // 'claro' | 'templado' | 'filtrasol' | 'tintex' | 'stadip' | 'duovent' o ID completo
+  tipo?: TipoVentana3D | string; // 'corrediza' | 'fija' | 'tres_hojas' | 'oxxo' | ...
+  typology?: TypologyDefinition;
+  marca?: string;
+  brandData?: BrandComparison;
+  acabadoId?: string;
+  cristalId?: string;
+  despiece?: DespieceInfo[];
+  onPiezaSeleccionada?: (pieza: PartUserData | null) => void;
 }
 
 interface SlidingTarget {
@@ -191,17 +206,44 @@ function createContactShadowTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+const CRISTAL_ALIAS: Record<string, string> = {
+  claro: 'claro_6mm',
+  tintex: 'tintex_6mm',
+  filtrasol: 'filtrasol_6mm',
+  templado: 'templado_6mm',
+  stadip: 'stadip_acustico',
+  duovent: 'duovent_18mm',
+};
+
 export const Visor3D: React.FC<Visor3DProps> = ({
   typology,
-  ancho,
-  alto,
-  marca,
+  ancho = 1800,
+  alto = 1400,
+  acabado,
+  cristal,
+  tipo = 'corrediza',
+  marca = 'Cuprum',
   brandData,
   acabadoId,
   cristalId,
-  despiece,
+  despiece = [],
+  onPiezaSeleccionada,
 }) => {
+  const resolvedAcabado = acabado ?? acabadoId ?? 'blanco';
+  const rawCristal = cristal ?? cristalId ?? 'claro';
+  const resolvedCristal = CRISTAL_ALIAS[rawCristal] ?? rawCristal;
+  const resolvedTypology =
+    typology ??
+    TIPOLOGIAS_CATALOGO.find((t) =>
+      tipo === 'corrediza'
+        ? t.svgType === 'corrediza_2'
+        : t.svgType === tipo || t.id === tipo
+    ) ??
+    TIPOLOGIAS_CATALOGO[2];
+
   const mountRef = useRef<HTMLDivElement>(null);
+  const onPiezaSeleccionadaRef = useRef(onPiezaSeleccionada);
+  onPiezaSeleccionadaRef.current = onPiezaSeleccionada;
 
   // Interactive HUD state
   const [webglError, setWebglError] = useState<boolean>(false);
@@ -241,9 +283,10 @@ export const Visor3D: React.FC<Visor3DProps> = ({
   const showWallRef = useRef<boolean>(showWall);
   showWallRef.current = showWall;
 
-  const isFixedTypology = typology.svgType === 'fija';
+  const isFixedTypology = resolvedTypology.svgType === 'fija';
   const isDoorTypology =
-    typology.svgType === 'puerta_batiente' || typology.svgType === 'puerta_ligera';
+    resolvedTypology.svgType === 'puerta_batiente' ||
+    resolvedTypology.svgType === 'puerta_ligera';
 
   // Helper to clear current highlight cleanly
   const clearSelection = () => {
@@ -258,6 +301,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
       selectedMeshRef.current = null;
     }
     setSelectedPart(null);
+    onPiezaSeleccionadaRef.current?.(null);
   };
 
   // --- 1. Initialize WebGL Scene once ---
@@ -581,7 +625,9 @@ export const Visor3D: React.FC<Visor3DProps> = ({
 
           selectedMeshRef.current = { mesh, originalMaterial: origMat };
           mesh.material = cloned;
-          setSelectedPart(obj.userData as PartUserData);
+          const partData = obj.userData as PartUserData;
+          setSelectedPart(partData);
+          onPiezaSeleccionadaRef.current?.(partData);
         }
       }
       requestRender();
@@ -653,21 +699,21 @@ export const Visor3D: React.FC<Visor3DProps> = ({
     const W = Math.max(0.4, ancho / 1000);
     const H = Math.max(0.4, alto / 1000);
     const isDoorOrBath =
-      typology.svgType === 'puerta_batiente' ||
-      typology.svgType === 'puerta_ligera' ||
-      typology.svgType === 'cancel_bano';
+      resolvedTypology.svgType === 'puerta_batiente' ||
+      resolvedTypology.svgType === 'puerta_ligera' ||
+      resolvedTypology.svgType === 'cancel_bano';
     const holeBottomY = isDoorOrBath ? 0.0 : 0.72;
     const centerY = holeBottomY + H / 2;
 
     // --- Materials ---
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
-    const acabadoObj = ACABADOS_ALUMINIO.find((a) => a.id === acabadoId) || ACABADOS_ALUMINIO[1];
-    const cristalObj = OPCIONES_CRISTAL.find((c) => c.id === cristalId) || OPCIONES_CRISTAL[0];
+    const acabadoObj = ACABADOS_ALUMINIO.find((a) => a.id === resolvedAcabado) || ACABADOS_ALUMINIO[1];
+    const cristalObj = OPCIONES_CRISTAL.find((c) => c.id === resolvedCristal) || OPCIONES_CRISTAL[0];
 
     let aluminumMat: THREE.MeshStandardMaterial;
     let aluminumDarkMat: THREE.MeshStandardMaterial;
 
-    if (acabadoId === 'nogal') {
+    if (resolvedAcabado === 'nogal') {
       const woodTex = createWoodGrainTexture(maxAniso);
       aluminumMat = new THREE.MeshStandardMaterial({
         map: woodTex,
@@ -680,7 +726,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
         metalness: 0.25,
         roughness: 0.52,
       });
-    } else if (acabadoId === 'blanco') {
+    } else if (resolvedAcabado === 'blanco') {
       aluminumMat = new THREE.MeshStandardMaterial({
         color: 0xf8fafc,
         metalness: 0.22,
@@ -691,7 +737,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
         metalness: 0.3,
         roughness: 0.42,
       });
-    } else if (acabadoId === 'natural') {
+    } else if (resolvedAcabado === 'natural') {
       aluminumMat = new THREE.MeshStandardMaterial({
         color: 0xd4dde7,
         metalness: 0.9,
@@ -702,7 +748,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
         metalness: 0.88,
         roughness: 0.32,
       });
-    } else if (acabadoId === 'bronce') {
+    } else if (resolvedAcabado === 'bronce') {
       aluminumMat = new THREE.MeshStandardMaterial({
         color: 0x5c2d16,
         metalness: 0.82,
@@ -730,19 +776,19 @@ export const Visor3D: React.FC<Visor3DProps> = ({
     // Glass tint & opacity mapped to catalog
     let glassColor = 0xa8d8ea;
     let glassOpacity = 0.28;
-    if (cristalId === 'tintex_6mm') {
+    if (resolvedCristal === 'tintex_6mm') {
       glassColor = 0x2ca87a;
       glassOpacity = 0.38;
-    } else if (cristalId === 'filtrasol_6mm') {
+    } else if (resolvedCristal === 'filtrasol_6mm') {
       glassColor = 0x3d4852;
       glassOpacity = 0.48;
-    } else if (cristalId === 'templado_6mm') {
+    } else if (resolvedCristal === 'templado_6mm') {
       glassColor = 0x8fd6ee;
       glassOpacity = 0.3;
-    } else if (cristalId === 'stadip_acustico') {
+    } else if (resolvedCristal === 'stadip_acustico') {
       glassColor = 0x6cb8d4;
       glassOpacity = 0.42;
-    } else if (cristalId === 'duovent_18mm') {
+    } else if (resolvedCristal === 'duovent_18mm') {
       glassColor = 0x86c9e0;
       glassOpacity = 0.34;
     }
@@ -758,7 +804,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
     });
 
     const hardwareMat = new THREE.MeshStandardMaterial({
-      color: typology.svgType === 'cancel_bano' ? 0xe2e8f0 : 0x334155,
+      color: resolvedTypology.svgType === 'cancel_bano' ? 0xe2e8f0 : 0x334155,
       metalness: 0.88,
       roughness: 0.22,
     });
@@ -828,18 +874,18 @@ export const Visor3D: React.FC<Visor3DProps> = ({
     scene.add(windowGroup);
     windowGroupRef.current = windowGroup;
 
-    const is3Inch = typology.serie.includes('3') || typology.serie === 'oxxo';
+    const is3Inch = resolvedTypology.serie.includes('3') || resolvedTypology.serie === 'oxxo';
     const brandThicknessDelta = isEurovent ? 0.005 : isIndalum ? 0.002 : 0;
     const brandDepthDelta = isEurovent ? 0.014 : isIndalum ? 0.006 : 0;
     const profileT = (is3Inch ? 0.045 : 0.036) + brandThicknessDelta;
     const profileD =
-      (typology.svgType === 'oxxo' || typology.svgType === 'tres_hojas'
+      (resolvedTypology.svgType === 'oxxo' || resolvedTypology.svgType === 'tres_hojas'
         ? 0.076
         : is3Inch
         ? 0.068
         : 0.05) + brandDepthDelta;
     const leafFrameT = 0.034 + brandThicknessDelta * 0.6;
-    const isDuovent = cristalId === 'duovent_18mm';
+    const isDuovent = resolvedCristal === 'duovent_18mm';
 
     const addGlassPane = (
       parent: THREE.Group,
@@ -873,7 +919,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
       const rielSup = makePart(
         new THREE.BoxGeometry(W, profileT, profileD),
         'Cabezal / Riel Superior',
-        typology.serie,
+        resolvedTypology.serie,
         aluminumDarkMat,
         `Aluminio ${acabadoObj.nombre}`,
         'Perfil estructural superior de anclaje y guía.',
@@ -886,7 +932,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
         const rielInf = makePart(
           new THREE.BoxGeometry(W, profileT, profileD),
           'Riel Inferior / Escalonado',
-          typology.serie,
+          resolvedTypology.serie,
           aluminumDarkMat,
           `Aluminio ${acabadoObj.nombre}`,
           'Riel inferior con drenajes y guía de rodamiento.',
@@ -900,7 +946,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
       const jambaL = makePart(
         jambaGeo,
         'Jamba Vertical Izquierda',
-        typology.serie,
+        resolvedTypology.serie,
         aluminumMat,
         `Aluminio ${acabadoObj.nombre}`,
         'Perfil lateral izquierdo de fijación al muro.',
@@ -912,7 +958,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
       const jambaR = makePart(
         jambaGeo,
         'Jamba Vertical Derecha',
-        typology.serie,
+        resolvedTypology.serie,
         aluminumMat,
         `Aluminio ${acabadoObj.nombre}`,
         'Perfil lateral derecho de fijación al muro.',
@@ -1077,7 +1123,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
     const innerW = W - 2 * profileT;
     const innerH = H - 2 * profileT;
 
-    switch (typology.svgType) {
+    switch (resolvedTypology.svgType) {
       case 'corrediza_2': {
         addOuterFrame(true);
         const leafW = innerW / 2 + 0.018;
@@ -1098,7 +1144,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
           maxDeltaX: -(innerW / 2 - 0.025),
         });
 
-        if (typology.usaMosquitero) {
+        if (resolvedTypology.usaMosquitero) {
           buildMosquitoLeaf(leafW, leafH, -0.032, innerW / 4 + 0.004);
         }
         break;
@@ -1175,7 +1221,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
           }
         );
 
-        if (typology.usaMosquitero) {
+        if (resolvedTypology.usaMosquitero) {
           buildMosquitoLeaf(leafW, leafH, -0.036, -innerW / 8);
           buildMosquitoLeaf(leafW, leafH, -0.036, innerW / 8);
         }
@@ -1231,7 +1277,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
         // Lower panel: glass for puerta_batiente, grooved duela slats for puerta_ligera
         const botPanelH = midY - interH / 2 - (-doorH / 2 + zocloH);
         const botPanelY = -doorH / 2 + zocloH + botPanelH / 2;
-        if (typology.svgType === 'puerta_ligera') {
+        if (resolvedTypology.svgType === 'puerta_ligera') {
           const slats = 6;
           const slatH = botPanelH / slats;
           const slatW = doorW - 2 * stileW;
@@ -1440,7 +1486,7 @@ export const Visor3D: React.FC<Visor3DProps> = ({
     controls.update();
 
     requestRenderRef.current();
-  }, [typology, ancho, alto, marca, brandData, acabadoId, cristalId, despiece, isFixedTypology]);
+  }, [resolvedTypology, ancho, alto, marca, brandData, resolvedAcabado, resolvedCristal, despiece, isFixedTypology]);
 
   // Wall toggle synchronization
   useEffect(() => {
@@ -1628,3 +1674,5 @@ export const Visor3D: React.FC<Visor3DProps> = ({
     </div>
   );
 };
+
+export default Visor3D;
