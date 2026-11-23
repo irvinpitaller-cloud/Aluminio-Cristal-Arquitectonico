@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   TIPOLOGIAS_CATALOGO,
   COMPARADOR_MARCAS,
@@ -8,6 +8,7 @@ import {
   evaluarFormula,
 } from '../data/aluminumData';
 import { SchematicPreview } from './SchematicPreview';
+import { Visor3D } from './Visor3D';
 import {
   Calculator,
   Plus,
@@ -19,7 +20,8 @@ import {
   Send,
   Layers,
   Copy,
-  Info,
+  Box,
+  DraftingCompass,
 } from 'lucide-react';
 
 export interface QuotedItem {
@@ -76,6 +78,17 @@ export const QuoteConfigurator: React.FC<QuoteConfiguratorProps> = ({
   const [cantidad, setCantidad] = useState<number>(1);
   const [showDespiece, setShowDespiece] = useState<boolean>(false);
   const [copiedCutList, setCopiedCutList] = useState<boolean>(false);
+  const [previewMode, setPreviewMode] = useState<'3d' | '2d'>('3d');
+
+  // Sync brand if user clicked a brand in BrandComparator
+  useEffect(() => {
+    if (!defaultBrand) return;
+    if (defaultBrand === 'Saint-Gobain') {
+      setCristalId('templado_6mm');
+    } else if (['Cuprum', 'Indalum', 'Eurovent'].includes(defaultBrand)) {
+      setMarca(defaultBrand);
+    }
+  }, [defaultBrand]);
 
   // When typology changes, reset dimensions to reasonable defaults
   const handleSelectTypology = (t: TypologyDefinition) => {
@@ -210,21 +223,60 @@ export const QuoteConfigurator: React.FC<QuoteConfiguratorProps> = ({
           {/* Left Column: Visual Vector Schematic & Cut Sheet Preview */}
           <div className="lg:col-span-5 space-y-4">
             <div className="rounded-2xl bg-slate-950 border border-slate-800 p-4 shadow-xl">
-              <div className="flex items-center justify-between px-2 mb-2 text-xs">
-                <span className="font-semibold text-slate-300">Esquema Proporcional</span>
-                <span className="font-mono text-slate-500">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1 mb-3 text-xs">
+                <div className="inline-flex rounded-lg bg-slate-900 p-0.5 border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('3d')}
+                    className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      previewMode === '3d'
+                        ? 'bg-sky-400 text-slate-950'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Box className="w-3.5 h-3.5" />
+                    <span>Visor 3D</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('2d')}
+                    className={`px-2.5 py-1 rounded-md font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      previewMode === '2d'
+                        ? 'bg-sky-400 text-slate-950'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <DraftingCompass className="w-3.5 h-3.5" />
+                    <span>Plano 2D</span>
+                  </button>
+                </div>
+
+                <span className="font-mono text-slate-400">
                   {ancho} × {alto} mm
                 </span>
               </div>
 
-              {/* Schematic SVG component */}
+              {/* 3D Interactive Viewer or 2D Schematic SVG */}
               <div className="rounded-xl overflow-hidden border border-slate-900 bg-black/40">
-                <SchematicPreview
-                  typology={currentTypology}
-                  ancho={ancho}
-                  alto={alto}
-                  acabadoId={acabadoId}
-                />
+                {previewMode === '3d' ? (
+                  <Visor3D
+                    typology={currentTypology}
+                    ancho={ancho}
+                    alto={alto}
+                    marca={marca}
+                    brandData={selectedBrandData}
+                    acabadoId={acabadoId}
+                    cristalId={cristalId}
+                    despiece={despieceActual}
+                  />
+                ) : (
+                  <SchematicPreview
+                    typology={currentTypology}
+                    ancho={ancho}
+                    alto={alto}
+                    acabadoId={acabadoId}
+                  />
+                )}
               </div>
 
               {/* Typology Info */}
